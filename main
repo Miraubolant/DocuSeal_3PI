@@ -1,0 +1,113 @@
+# Configuration des en-têtes pour l'API DocuSeal
+# Ces en-têtes sont nécessaires pour l'authentification et pour spécifier le format des données
+$headers = @{
+    "X-Auth-Token" = "kVJKYK6rZDPYrCMymev2jct3x4qUAD8XRGkGeAsjHgx"
+    "Content-Type" = "application/json"
+}
+
+# Lecture et encodage du fichier PDF en Base64
+# Cette étape convertit le fichier PDF en un format que l'API peut traiter
+$base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\Users\victo\Documents\Requête_de_Vente_N°18_Dossier_E132.pdf'))
+
+# Demande du nom du dossier à l'utilisateur
+# Ce nom sera utilisé pour créer un nouveau dossier ou utiliser un dossier existant
+Write-Host "`nGestion du dossier de destination:"
+$folderName = Read-Host "Entrez le nom du dossier"
+
+# Création du corps de la requête pour le template
+# Cette structure définit le document, son dossier et ses champs de signature
+$body = @{
+    name = "Document"
+    folder_name = $folderName
+    documents = @(
+        @{
+            name = "Document"
+            file = $base64
+            fields = @(
+                @{
+                    name = "signature"
+                    type = "signature"
+                    areas = @(
+                        @{
+                            x = 100
+                            y = 100
+                            w = 200
+                            h = 100
+                            page = 1
+                        }
+                    )
+                }
+            )
+        }
+    )
+}
+
+# Conversion de la structure en JSON pour l'envoi à l'API
+$bodyJson = $body | ConvertTo-Json -Depth 10
+
+# Création du template avec gestion détaillée des erreurs
+try {
+    Write-Host "`nCréation du template..."
+    $response = Invoke-RestMethod -Uri "https://api.docuseal.com/templates/pdf" -Method Post -Headers $headers -Body $bodyJson
+    Write-Host "Template créé avec succès dans le dossier '$folderName'!"
+    Write-Host "ID du template: $($response.id)"
+    $templateId = $response.id
+}
+catch {
+    Write-Host "`nErreur lors de la création du template:"
+    Write-Host "StatusCode:" $_.Exception.Response.StatusCode.value__
+    Write-Host "StatusDescription:" $_.Exception.Response.StatusDescription
+    
+    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+    $reader.BaseStream.Position = 0
+    $reader.DiscardBufferedData()
+    $responseBody = $reader.ReadToEnd()
+    Write-Host "Détails de l'erreur:"
+    Write-Host $responseBody
+    exit
+}
+
+# Création du corps de la requête pour la soumission
+# Cette structure définit les informations du signataire et les paramètres d'envoi
+$submissionBody = @{
+    template_id = $templateId
+    send_email = $true
+    submitters = @(
+        @{
+            email = "victor@mirault.com"
+            name = "Prenom Nom"  
+            phone_number = "0123456789"
+            fields = @(
+                @{
+                    name = "signature"
+                    value = ""
+                }
+            )
+            message = "Message pour la signature"
+            email_subject = "Sujet de l'email"
+        }
+    )
+} | ConvertTo-Json -Depth 10
+
+# Affichage du corps de la requête de soumission pour vérification
+Write-Host "`nCorps de la requête de soumission:"
+Write-Host $submissionBody
+
+# Envoi de la requête de soumission avec gestion détaillée des erreurs
+try {
+    Write-Host "`nEnvoi de la soumission..."
+    $submissionResponse = Invoke-RestMethod -Uri "https://api.docuseal.com/submissions" -Method Post -Headers $headers -Body $submissionBody
+    Write-Host "Soumission créée avec succès :"
+    $submissionResponse | ConvertTo-Json
+} catch {
+    Write-Host "`nErreur lors de la soumission:"
+    Write-Host "StatusCode:" $_.Exception.Response.StatusCode.value__
+    Write-Host "StatusDescription:" $_.Exception.Response.StatusDescription
+    
+    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+    $reader.BaseStream.Position = 0
+    $reader.DiscardBufferedData()
+    $responseBody = $reader.ReadToEnd()
+    Write-Host "Corps de la réponse d'erreur:"
+    Write-Host $responseBody
+}
